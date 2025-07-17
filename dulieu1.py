@@ -154,6 +154,26 @@ def start_account_session():
     except Exception as e:
         print(f"{do}❌ Cookie die hoặc lỗi đăng nhập: {e}{reset_color}")
 
+def manage_accounts():
+    while True:
+        if not active_accounts:
+            print(f"{do}❌ Không có acc nào đang chạy.{reset_color}")
+            return
+        print(f"\n{xanh_la}📋 Danh sách acc đang chạy:{reset_color}")
+        for idx, acc in enumerate(active_accounts, start=1):
+            print(f"{vang}{idx}. IMEI: {acc['bot'].imei} | Nhóm: {acc['bot'].group_name}{reset_color}")
+        try:
+            choice = int(input(f"\n{tim}Nhập số thứ tự acc muốn dừng (0 để quay lại): {reset_color}").strip())
+            if choice == 0:
+                return
+            if 1 <= choice <= len(active_accounts):
+                acc = active_accounts.pop(choice - 1)
+                acc['bot'].stop_sending()
+            else:
+                print(f"{do}Số không hợp lệ.{reset_color}")
+        except ValueError:
+            print(f"{do}Vui lòng nhập số hợp lệ.{reset_color}")
+
 def run_tool():
     os.system("clear")
     print(f"{xanh_duong}🔄 Tool réo đa tài khoản (Gõ 'addacc' để thêm acc){reset_color}")
@@ -163,13 +183,7 @@ def run_tool():
         if user_input == 'addacc':
             start_account_session()
         elif user_input == 'checkacc':
-            if not active_accounts:
-                print(f"{do}❌ Không có acc nào đang chạy.{reset_color}")
-                continue
-            print(f"\n{xanh_la}📋 Danh sách acc đang chạy:{reset_color}")
-            for idx, acc in enumerate(active_accounts, start=1):
-                print(f"{vang}{idx}. IMEI: {acc['bot'].imei} | Nhóm: {acc['bot'].group_name}{reset_color}")
-            input(f"{tim}Nhấn Enter để quay lại menu chính.{reset_color}")
+            manage_accounts()
 
 if __name__ == "__main__":
     run_tool()
