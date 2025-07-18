@@ -35,6 +35,7 @@ class Bot(ZaloAPI):
         self.group_name = "?"
         self.running = False
         self.use_mention = False
+        self.direct_content = None
 
     def fetch_group_info(self):
         try:
@@ -112,6 +113,15 @@ class Bot(ZaloAPI):
         except Exception as e:
             print(f"{do}Lỗi khi gửi nội dung: {e}{reset_color}")
 
+    def send_direct_content(self, thread_id, delay):
+        if not self.direct_content:
+            print(f"{do}❌ Nội dung trống.{reset_color}")
+            return
+        self.running = True
+        while self.running:
+            self.send_plain_message(thread_id, self.direct_content)
+            time.sleep(delay)
+
     def stop_sending(self):
         self.running = False
         print(f"{vang}⛔ Đã dừng gửi tin nhắn.{reset_color}")
@@ -128,12 +138,21 @@ def start_account_session():
 
     try:
         client = Bot(API_KEY, SECRET_KEY, imei=imei, session_cookies=cookie)
-        print(f"{xanh_duong}Chọn chế độ gửi tin nhắn:{reset_color}")
-        print(f"{xanh_duong}[1] Gửi thường (không mention){reset_color}")
-        print(f"{xanh_duong}[2] Gửi có mention ngôn{reset_color}")
-        mode = input(f"{tim}Chọn chế độ (1 hoặc 2): {reset_color}").strip()
+        print(f"{xanh_duong}Chọn chế độ treo:{reset_color}")
+        print(f"{xanh_duong}[1] Gửi thường{reset_color}")
+        print(f"{xanh_duong}[2] Gửi có mention{reset_color}")
+        print(f"{xanh_duong}[3] Gửi ngôn metion riêng không cần file {reset_color}")
+        mode = input(f"{tim}Chọn chế độ (1, 2 hoặc 3): {reset_color}").strip()
+
         if mode == '2':
             client.use_mention = True
+        elif mode == '3':
+            client.use_mention = True
+            direct_msg = input(f"{xanh_duong}✍️ Nhập nội dung muốn treo: {reset_color}").strip()
+            if not direct_msg:
+                print(f"{do}❌ Nội dung không hợp lệ.{reset_color}")
+                return
+            client.direct_content = direct_msg
 
         thread_id = client.select_group()
         if not thread_id:
@@ -145,7 +164,10 @@ def start_account_session():
             delay = 60
 
         def reo_thread():
-            client.send_full_file_content(thread_id, delay)
+            if mode == '3':
+                client.send_direct_content(thread_id, delay)
+            else:
+                client.send_full_file_content(thread_id, delay)
 
         t = threading.Thread(target=reo_thread, daemon=True)
         active_accounts.append({'thread': t, 'bot': client})
@@ -176,7 +198,7 @@ def manage_accounts():
 
 def run_tool():
     os.system("clear")
-    print(f"{xanh_duong}🔄 Tool réo đa tài khoản (Gõ 'addacc' để thêm acc){reset_color}")
+    print(f"{xanh_duong}🔄 Tool treo đa tài khoản (Gõ 'addacc' để thêm acc){reset_color}")
     start_account_session()
     while True:
         user_input = input(f"{xanh_duong}➡️ Gõ 'addacc' để thêm acc, 'checkacc' để quản lý: {reset_color}").strip().lower()
