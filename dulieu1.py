@@ -6,7 +6,7 @@ import random
 from collections import defaultdict
 from datetime import datetime
 from zlapi import ZaloAPI, ThreadType, Message
-from zlapi.models import Mention
+from zlapi.models import Mention, MultiMention, MultiMsgStyle, MessageStyle
 from config import API_KEY, SECRET_KEY, IMEI, SESSION_COOKIES
 
 reset_color = "\033[0m"
@@ -36,6 +36,8 @@ class Bot(ZaloAPI):
         self.running = False
         self.use_mention = False
         self.direct_content = None
+        self.use_tagall = False
+        self.tagall_message = ""
 
     def fetch_group_info(self):
         try:
@@ -96,6 +98,15 @@ class Bot(ZaloAPI):
         except Exception as e:
             print(f"{do}Lỗi khi gửi tin nhắn: {e}{reset_color}")
 
+    def send_direct_content(self, thread_id, delay):
+        if not self.direct_content:
+            print(f"{do}❌ Nội dung trống.{reset_color}")
+            return
+        self.running = True
+        while self.running:
+            self.send_plain_message(thread_id, self.direct_content)
+            time.sleep(delay)
+
     def send_full_file_content(self, thread_id, delay):
         filename = "ngontreo.txt"
         try:
@@ -113,14 +124,34 @@ class Bot(ZaloAPI):
         except Exception as e:
             print(f"{do}Lỗi khi gửi nội dung: {e}{reset_color}")
 
-    def send_direct_content(self, thread_id, delay):
-        if not self.direct_content:
-            print(f"{do}❌ Nội dung trống.{reset_color}")
-            return
-        self.running = True
-        while self.running:
-            self.send_plain_message(thread_id, self.direct_content)
-            time.sleep(delay)
+    def send_tagall(self, thread_id, delay):
+        try:
+            group_info = self.fetchGroupInfo(thread_id).gridInfoMap[thread_id]
+            members = group_info.get('memVerList', [])
+            if not members:
+                return
+            text = f"{self.tagall_message}"
+            mentions = []
+            offset = len(text)
+            for member in members:
+                parts = member.split('_', 1)
+                if len(parts) != 2:
+                    continue
+                uid, name = parts
+                mention = Mention(uid=uid, offset=offset, length=len(name) + 1, auto_format=False)
+                mentions.append(mention)
+                offset += len(name) + 2
+            multi_mention = MultiMention(mentions)
+            styles = MultiMsgStyle([
+                MessageStyle(offset=0, length=len(text), style="color", color="#DB342E", auto_format=False),
+                MessageStyle(offset=0, length=len(text), style="bold", size="15", auto_format=False)
+            ])
+            self.running = True
+            while self.running:
+                self.send(Message(text=text, mention=multi_mention, style=styles), thread_id=thread_id, thread_type=ThreadType.GROUP)
+                time.sleep(delay)
+        except Exception as e:
+            print(f"{do}Lỗi tagall: {e}{reset_color}")
 
     def stop_sending(self):
         self.running = False
@@ -141,18 +172,53 @@ def start_account_session():
         print(f"{xanh_duong}Chọn chế độ treo:{reset_color}")
         print(f"{xanh_duong}[1] Gửi thường{reset_color}")
         print(f"{xanh_duong}[2] Gửi có mention{reset_color}")
-        print(f"{xanh_duong}[3] Gửi ngôn metion riêng không cần file {reset_color}")
+        print(f"{xanh_duong}[3] Treo tagall style đỏ đẹp{reset_color}")
         mode = input(f"{tim}Chọn chế độ (1, 2 hoặc 3): {reset_color}").strip()
 
-        if mode == '2':
-            client.use_mention = True
+        content_mode = None
+        if mode in ['1', '2']:
+            if mode == '2':
+                client.use_mention = True
+            print(f"{xanh_duong}Chọn nguồn nội dung:{reset_color}")
+            print(f"{xanh_duong}[1] Treo theo ngontreo.txt{reset_color}")
+            print(f"{xanh_duong}[2] Nhập nội dung riêng{reset_color}")
+            sub = input(f"{tim}Chọn (1 hoặc 2): {reset_color}").strip()
+            if sub == '2':
+                direct_msg = input(f"{xanh_duong}✍️ Nhập nội dung muốn treo: {reset_color}").strip()
+                if not direct_msg:
+                    print(f"{do}❌ Nội dung không hợp lệ.{reset_color}")
+                    return
+                client.direct_content = direct_msg
+                content_mode = 'direct'
+            else:
+                content_mode = 'file'
         elif mode == '3':
-            client.use_mention = True
-            direct_msg = input(f"{xanh_duong}✍️ Nhập nội dung muốn treo: {reset_color}").strip()
-            if not direct_msg:
-                print(f"{do}❌ Nội dung không hợp lệ.{reset_color}")
-                return
-            client.direct_content = direct_msg
+            client.use_tagall = True
+            print(f"{xanh_duong}Chọn nguồn nội dung tagall:{reset_color}")
+            print(f"{xanh_duong}[1] Treo theo ngontreo.txt{reset_color}")
+            print(f"{xanh_duong}[2] Nhập nội dung riêng{reset_color}")
+            sub = input(f"{tim}Chọn (1 hoặc 2): {reset_color}").strip()
+            if sub == '2':
+                tagall_msg = input(f"{xanh_duong}✍️ Nhập nội dung tagall: {reset_color}").strip()
+                if not tagall_msg:
+                    print(f"{do}❌ Nội dung không hợp lệ.{reset_color}")
+                    return
+                client.tagall_message = tagall_msg
+                content_mode = 'direct'
+            else:
+                try:
+                    with open("ngontreo.txt", "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                        if not content:
+                            print(f"{do}❌ File rỗng hoặc không có nội dung.{reset_color}")
+                            return
+                        client.tagall_message = content
+                        content_mode = 'file'
+                except Exception as e:
+                    print(f"{do}❌ Lỗi đọc file: {e}{reset_color}")
+                    return
+        else:
+            return
 
         thread_id = client.select_group()
         if not thread_id:
@@ -165,6 +231,8 @@ def start_account_session():
 
         def reo_thread():
             if mode == '3':
+                client.send_tagall(thread_id, delay)
+            elif content_mode == 'direct':
                 client.send_direct_content(thread_id, delay)
             else:
                 client.send_full_file_content(thread_id, delay)
