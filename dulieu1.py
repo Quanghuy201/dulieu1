@@ -38,6 +38,7 @@ class Bot(ZaloAPI):
         self.direct_content = None
         self.use_tagall = False
         self.tagall_message = ""
+        self.use_random_color = False
 
     def fetch_group_info(self):
         try:
@@ -60,7 +61,6 @@ class Bot(ZaloAPI):
         for group in groups:
             first_letter = group['name'][0].lower()
             grouped[first_letter].append(group)
-
         flat_list = []
         count = 1
         for letter in sorted(grouped.keys()):
@@ -153,6 +153,37 @@ class Bot(ZaloAPI):
         except Exception as e:
             print(f"{do}Lỗi tagall: {e}{reset_color}")
 
+    def send_tagall_random_color(self, thread_id, delay):
+        color_list = ["DB342E", "15A85F", "F27806", "F7B503", "000000"]
+        try:
+            group_info = self.fetchGroupInfo(thread_id).gridInfoMap[thread_id]
+            members = group_info.get('memVerList', [])
+            if not members:
+                return
+            text = f"{self.tagall_message}"
+            mentions = []
+            offset = len(text)
+            for member in members:
+                parts = member.split('_', 1)
+                if len(parts) != 2:
+                    continue
+                uid, name = parts
+                mention = Mention(uid=uid, offset=offset, length=len(name) + 1, auto_format=False)
+                mentions.append(mention)
+                offset += len(name) + 2
+            self.running = True
+            while self.running:
+                random_color = f"#{random.choice(color_list)}"
+                styles = MultiMsgStyle([
+                    MessageStyle(offset=0, length=len(text), style="color", color=random_color, auto_format=False),
+                    MessageStyle(offset=0, length=len(text), style="bold", size="15", auto_format=False)
+                ])
+                multi_mention = MultiMention(mentions)
+                self.send(Message(text=text, mention=multi_mention, style=styles), thread_id=thread_id, thread_type=ThreadType.GROUP)
+                time.sleep(delay)
+        except Exception as e:
+            print(f"{do}Lỗi tagall random màu: {e}{reset_color}")
+
     def stop_sending(self):
         self.running = False
         print(f"{vang}⛔ Đã dừng gửi tin nhắn.{reset_color}")
@@ -166,14 +197,14 @@ def start_account_session():
         cookie = validate_cookie(cookie_str)
         if cookie:
             break
-
     try:
         client = Bot(API_KEY, SECRET_KEY, imei=imei, session_cookies=cookie)
         print(f"{xanh_duong}Chọn chế độ treo:{reset_color}")
         print(f"{xanh_duong}[1] Gửi thường{reset_color}")
         print(f"{xanh_duong}[2] Gửi có mention{reset_color}")
         print(f"{xanh_duong}[3] Treo tagall style đỏ đẹp{reset_color}")
-        mode = input(f"{tim}Chọn chế độ (1, 2 hoặc 3): {reset_color}").strip()
+        print(f"{xanh_duong}[4] Treo tagall random màu{reset_color}")
+        mode = input(f"{tim}Chọn chế độ (1-4): {reset_color}").strip()
 
         content_mode = None
         if mode in ['1', '2']:
@@ -192,8 +223,10 @@ def start_account_session():
                 content_mode = 'direct'
             else:
                 content_mode = 'file'
-        elif mode == '3':
+        elif mode in ['3', '4']:
             client.use_tagall = True
+            if mode == '4':
+                client.use_random_color = True
             print(f"{xanh_duong}Chọn nguồn nội dung tagall:{reset_color}")
             print(f"{xanh_duong}[1] Treo theo ngontreo.txt{reset_color}")
             print(f"{xanh_duong}[2] Nhập nội dung riêng{reset_color}")
@@ -232,6 +265,8 @@ def start_account_session():
         def reo_thread():
             if mode == '3':
                 client.send_tagall(thread_id, delay)
+            elif mode == '4':
+                client.send_tagall_random_color(thread_id, delay)
             elif content_mode == 'direct':
                 client.send_direct_content(thread_id, delay)
             else:
