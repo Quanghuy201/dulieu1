@@ -2,9 +2,10 @@ import threading
 import time
 import os
 import json
+import random
 from collections import defaultdict
 from zlapi import ZaloAPI, ThreadType, Message
-from zlapi.models import Mention, MultiMsgStyle, MessageStyle
+from zlapi.models import Mention, MessageStyle, MultiMsgStyle
 from config import API_KEY, SECRET_KEY
 
 reset_color = "\033[0m"
@@ -31,9 +32,11 @@ class Bot(ZaloAPI):
         self.imei = imei
         self.group_name = "?"
         self.running = False
+        self.is_spamstk_running = False
+        self.file_content = ""
         self.use_mention = False
         self.use_tagall_style = False
-        self.file_content = ""
+        self.mode = "1"
 
     def fetch_group_info(self):
         try:
@@ -53,11 +56,11 @@ class Bot(ZaloAPI):
             print(f"{do}Không tìm thấy nhóm nào.{reset_color}")
             return None
         grouped = defaultdict(list)
+        flat_list = []
+        count = 1
         for group in groups:
             first_letter = group['name'][0].lower()
             grouped[first_letter].append(group)
-        flat_list = []
-        count = 1
         for letter in sorted(grouped.keys()):
             print(f"\n{vang}--- Nhóm bắt đầu bằng chữ '{letter.upper()}' ---{reset_color}")
             for group in sorted(grouped[letter], key=lambda x: x['name']):
@@ -83,10 +86,27 @@ class Bot(ZaloAPI):
             except ValueError:
                 print(f"{do}Vui lòng nhập số hợp lệ.{reset_color}")
 
+    def choose_txt_file_treo(self):
+        folder = "treo"
+        files = [f for f in os.listdir(folder) if f.endswith('.txt')]
+        if not files:
+            print(f"{do}❌ Không có file .txt trong thư mục treo{reset_color}")
+            return None
+        print(vang + "\n📂 Danh sách file .txt trong treo:" + reset_color)
+        for i, f in enumerate(files, 1):
+            print(f"{i}. {f}")
+        while True:
+            try:
+                idx = int(input(xanh_nhat + "\n💧 Chọn file: " + reset_color).strip())
+                if 1 <= idx <= len(files):
+                    return os.path.join(folder, files[idx - 1])
+                print(do + "❌ Số không hợp lệ" + reset_color)
+            except ValueError:
+                print(do + "❌ Nhập số nguyên" + reset_color)
+
     def send_full_content(self, thread_id, delay):
         try:
             if not self.file_content:
-                print(f"{do}❌ File rỗng hoặc không có nội dung.{reset_color}")
                 return
             self.running = True
             while self.running:
@@ -104,32 +124,86 @@ class Bot(ZaloAPI):
                 else:
                     self.send(Message(text=self.file_content), thread_id=thread_id, thread_type=ThreadType.GROUP)
                 time.sleep(delay)
-        except Exception as e:
-            print(f"{do}Lỗi khi gửi nội dung: {e}{reset_color}")
+        except:
+            pass
+
+    def list_group_members(self, thread_id):
+        try:
+            group = super().fetchGroupInfo(thread_id)["gridInfoMap"][thread_id]
+            members = group["memVerList"]
+            members_list = []
+            for index, member in enumerate(members, start=1):
+                uid = member.split('_')[0]
+                user_info = super().fetchUserInfo(uid)
+                author_info = user_info.get("changed_profiles", {}).get(uid, {})
+                name = author_info.get('zaloName', 'Không xác định')
+                members_list.append({"uid": uid, "name": name})
+                print(f"{index}. {name} (UID: {uid})")
+            choice = int(input("Nhập số để chọn thành viên: ")) - 1
+            return members_list[choice] if 0 <= choice < len(members_list) else None
+        except:
+            return None
+
+    def send_reo_file(self, thread_id, mentioned_user_id, mentioned_name, filename, delay, enable_sticker, stk_delay):
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                base_lines = [line.strip() for line in f if line.strip()]
+                if not base_lines:
+                    return
+                remaining_lines = []
+                self.running = True
+                self.is_spamstk_running = enable_sticker
+
+                def spam_loop():
+                    nonlocal remaining_lines
+                    while self.running:
+                        if not remaining_lines:
+                            remaining_lines = base_lines.copy()
+                            random.shuffle(remaining_lines)
+                        phrase = remaining_lines.pop()
+                        mention_text = "@1"
+                        message_text = f"{phrase} =))=))=))=)) {mention_text}"
+                        offset = message_text.index(mention_text)
+                        mention = Mention(uid=mentioned_user_id, offset=offset, length=len(mention_text))
+                        full_message = Message(text=message_text, mention=mention)
+                        self.setTyping(thread_id, ThreadType.GROUP)
+                        time.sleep(1.5)
+                        self.send(full_message, thread_id=thread_id, thread_type=ThreadType.GROUP)
+                        time.sleep(delay)
+
+                def spamstk_loop():
+                    while self.is_spamstk_running:
+                        try:
+                            self.sendSticker(
+                                stickerType=3,
+                                stickerId=21979,
+                                cateId=10136,
+                                thread_id=thread_id,
+                                thread_type=ThreadType.GROUP
+                            )
+                        except:
+                            pass
+                        time.sleep(stk_delay)
+
+                t1 = threading.Thread(target=spam_loop)
+                t1.daemon = True
+                t1.start()
+
+                if enable_sticker:
+                    t2 = threading.Thread(target=spamstk_loop)
+                    t2.daemon = True
+                    t2.start()
+
+                while self.running:
+                    time.sleep(1)
+        except:
+            pass
 
     def stop_sending(self):
         self.running = False
-        print(f"{vang}⛔ Đã dừng gửi tin nhắn.{reset_color}")
+        self.is_spamstk_running = False
 
 active_accounts = []
-
-def choose_txt_file():
-    folder = "treo"
-    files = [f for f in os.listdir(folder) if f.endswith('.txt')]
-    if not files:
-        print(f"{do}❌ Không có file .txt trong thư mục treo{reset_color}")
-        return None
-    print(vang + "\n📂 Danh sách file .txt:" + reset_color)
-    for i, f in enumerate(files, 1):
-        print(f"{i}. {f}")
-    while True:
-        try:
-            idx = int(input(xanh_nhat + "\n💧 Chọn file: " + reset_color).strip())
-            if 1 <= idx <= len(files):
-                return os.path.join(folder, files[idx - 1])
-            print(do + "❌ Số không hợp lệ" + reset_color)
-        except ValueError:
-            print(do + "❌ Nhập số nguyên" + reset_color)
 
 def start_account_session():
     imei = input(f"{xanh_nhat}📱 Nhập IMEI: {reset_color}").strip()
@@ -140,67 +214,83 @@ def start_account_session():
             break
     try:
         client = Bot(API_KEY, SECRET_KEY, imei=imei, session_cookies=cookie)
-        print(f"{xanh_duong}Chọn chế độ treo:{reset_color}")
-        print(f"{xanh_duong}[1] Gửi thường{reset_color}")
-        print(f"{xanh_duong}[2] Gửi có mention (-1){reset_color}")
-        print(f"{xanh_duong}[3] Gửi có mention (-1) + style đỏ đậm{reset_color}")
+        print(f"{xanh_duong}Chọn chế độ:{reset_color}")
+        print(f"[1] Gửi thường")
+        print(f"[2] Gửi có mention (-1)")
+        print(f"[3] Gửi có mention + style")
+        print(f"[4] Nhây réo tag")
         while True:
-            mode = input(f"{tim}Chọn chế độ (1-3): {reset_color}").strip()
-            if mode in ['1', '2', '3']:
+            mode = input(f"{tim}Chọn chế độ (1-4): {reset_color}").strip()
+            if mode in ['1','2','3','4']:
+                client.mode = mode
                 break
-            print(do + "❌ Chỉ được chọn 1, 2 hoặc 3" + reset_color)
-
-        file_path = choose_txt_file()
-        if not file_path:
-            return
-
-        with open(file_path, "r", encoding="utf-8") as f:
-            client.file_content = f.read().strip()
-
-        if mode == '2':
-            client.use_mention = True
-        elif mode == '3':
-            client.use_tagall_style = True
 
         thread_id = client.select_group()
         if not thread_id:
             return
 
-        try:
-            delay = float(input(f"{xanh_nhat}⏱️ Nhập delay (giây): {reset_color}").strip())
-        except ValueError:
-            delay = 60
+        if mode in ['1','2','3']:
+            file_path = client.choose_txt_file_treo()
+            if not file_path:
+                return
+            with open(file_path, "r", encoding="utf-8") as f:
+                client.file_content = f.read().strip()
+            if mode == '2':
+                client.use_mention = True
+            elif mode == '3':
+                client.use_tagall_style = True
+            try:
+                delay = float(input(f"{xanh_nhat}⏱️ Nhập delay (giây): {reset_color}").strip())
+            except:
+                delay = 60
+            t = threading.Thread(target=lambda: client.send_full_content(thread_id, delay), daemon=True)
+            active_accounts.append({'thread': t, 'bot': client})
+            t.start()
 
-        t = threading.Thread(target=lambda: client.send_full_content(thread_id, delay), daemon=True)
-        active_accounts.append({'thread': t, 'bot': client})
-        t.start()
+        elif mode == '4':
+            try:
+                delay = float(input(f"{xanh_nhat}⏱️ Nhập delay gửi tin (giây): {reset_color}").strip())
+            except:
+                delay = 60
+            filename = input(f"{xanh_nhat}Nhập file txt để gửi: {reset_color}").strip()
+            enable_sticker = input(f"{xanh_nhat}Bật sticker không? (y/n): {reset_color}").lower() == 'y'
+            stk_delay = 5
+            if enable_sticker:
+                try:
+                    stk_delay = float(input(f"{xanh_nhat}Nhập delay sticker (giây): {reset_color}").strip())
+                except:
+                    stk_delay = 5
+            selected_member = client.list_group_members(thread_id)
+            if not selected_member:
+                return
+            t = threading.Thread(target=lambda: client.send_reo_file(thread_id, selected_member['uid'], selected_member['name'], filename, delay, enable_sticker, stk_delay), daemon=True)
+            active_accounts.append({'thread': t, 'bot': client})
+            t.start()
 
-    except Exception as e:
-        print(f"{do}❌ Cookie die hoặc lỗi đăng nhập: {e}{reset_color}")
+    except:
+        pass
 
 def manage_accounts():
     while True:
         if not active_accounts:
-            print(f"{do}❌ Không có acc nào đang chạy.{reset_color}")
             return
-        print(f"\n{xanh_la}📋 Danh sách acc đang chạy:{reset_color}")
         for idx, acc in enumerate(active_accounts, start=1):
-            print(f"{vang}{idx}. IMEI: {acc['bot'].imei} | Nhóm: {acc['bot'].group_name}{reset_color}")
+            group_display_name = acc['bot'].group_name
+            if acc['bot'].mode == '4':
+                group_display_name += " (nhây)"
+            print(f"{idx}. Nhóm: {group_display_name} | IMEI: {acc['bot'].imei}")
         try:
-            choice = int(input(f"\n{tim}Nhập số thứ tự acc muốn dừng (0 để quay lại): {reset_color}").strip())
+            choice = int(input("Nhập số thứ tự acc muốn dừng (0 để quay lại): ").strip())
             if choice == 0:
                 return
             if 1 <= choice <= len(active_accounts):
                 acc = active_accounts.pop(choice - 1)
                 acc['bot'].stop_sending()
-            else:
-                print(f"{do}Số không hợp lệ.{reset_color}")
-        except ValueError:
-            print(f"{do}Vui lòng nhập số hợp lệ.{reset_color}")
+        except:
+            pass
 
 def run_tool():
     os.system("clear")
-    print(f"{xanh_duong}🔄 Tool treo đa tài khoản (Gõ 'addacc' để thêm acc){reset_color}")
     start_account_session()
     while True:
         user_input = input(f"{xanh_duong}➡️ Gõ 'addacc' để thêm acc, 'checkacc' để quản lý: {reset_color}").strip().lower()
